@@ -24,18 +24,23 @@ app.get("/api/config", (req, res) => {
 // Zhipu AI Proxy Route
 app.post("/api/chat", async (req, res) => {
   const { prompt } = req.body;
-  const zhipuApiKey = process.env.ZHIPU_API_KEY;
+  const zhipuApiKey = process.env.ZHIPU_API_KEY?.trim();
 
   if (!zhipuApiKey) {
-    return res.status(500).json({ error: "ZHIPU_API_KEY is not configured on the server." });
+    return res.status(500).json({ error: "ZHIPU_API_KEY is not configured or is empty." });
   }
 
   try {
+    const maskedKey = zhipuApiKey.length > 8 
+      ? `${zhipuApiKey.substring(0, 4)}...${zhipuApiKey.substring(zhipuApiKey.length - 4)}`
+      : "***";
+    console.log(`Attempting Zhipu AI request with key: ${maskedKey}`);
+
     const response = await fetch("https://open.bigmodel.cn/api/paas/v4/chat/completions", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": `Bearer ${zhipuApiKey}`,
+        "Authorization": zhipuApiKey, // Removed "Bearer " prefix
       },
       body: JSON.stringify({
         model: "GLM-4-Flash",
@@ -46,8 +51,21 @@ app.post("/api/chat", async (req, res) => {
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
-      console.error("Zhipu AI Error:", errorData);
-      return res.status(response.status).json(errorData);
+      console.error("Zhipu AI Error:", JSON.stringify(errorData));
+      
+      let errorMessage = "Unknown Zhipu AI Error";
+      if (typeof errorData.error === "string") {
+        errorMessage = errorData.error;
+      } else if (errorData.error && typeof errorData.error.message === "string") {
+        errorMessage = errorData.error.message;
+      } else if (typeof errorData.message === "string") {
+        errorMessage = errorData.message;
+      }
+
+      return res.status(response.status).json({
+        error: errorMessage,
+        details: errorData
+      });
     }
 
     const data = await response.json();
