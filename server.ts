@@ -34,7 +34,7 @@ async function startServer() {
           "Authorization": `Bearer ${zhipuApiKey}`,
         },
         body: JSON.stringify({
-          model: "glm-4",
+          model: "GLM-4-Flash",
           messages: [{ role: "user", content: prompt }],
           temperature: 0.1,
         }),
