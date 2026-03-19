@@ -1,18 +1,18 @@
 import { Story } from "./stories";
 import { GoogleGenAI } from "@google/genai";
 
-let hasZhipuConfig: boolean | null = null;
+let aiConfig: { hasZhipu: boolean; hasGemini: boolean } | null = null;
 
-const checkZhipuConfig = async () => {
-  if (hasZhipuConfig !== null) return hasZhipuConfig;
+const checkAIConfig = async () => {
+  if (aiConfig !== null) return aiConfig;
   try {
     const res = await fetch("/api/config");
     const data = await res.json();
-    hasZhipuConfig = data.hasZhipu;
-    return hasZhipuConfig;
+    aiConfig = data;
+    return aiConfig;
   } catch (e) {
     console.error("Failed to check config:", e);
-    return false;
+    return { hasZhipu: false, hasGemini: false };
   }
 };
 
@@ -57,12 +57,12 @@ export const askAI = async (question: string, story: Story): Promise<string> => 
     请给出回答：
   `;
 
-  const isZhipuAvailable = await checkZhipuConfig();
+  const config = await checkAIConfig();
 
   try {
     let text = "";
 
-    if (isZhipuAvailable) {
+    if (config?.hasZhipu) {
       // Engine 1: Zhipu AI via Proxy
       try {
         const response = await fetch("/api/chat", {
@@ -82,30 +82,32 @@ export const askAI = async (question: string, story: Story): Promise<string> => 
         text = data.choices[0].message.content.trim();
       } catch (e) {
         console.error("Zhipu Engine Failed:", e);
-        throw e; // Re-throw to be caught by the outer catch
+        throw e;
       }
-    } else {
-      // Engine 2: Google Gemini Fallback
+    } else if (config?.hasGemini) {
+      // Engine 2: Google Gemini via Proxy
       try {
-        const apiKey = process.env.GEMINI_API_KEY;
-        if (!apiKey) {
-          throw new Error("未检测到有效配置（ZHIPU_API_KEY 或 GEMINI_API_KEY 缺失）");
-        }
-        
-        const ai = new GoogleGenAI({ apiKey });
-        const response = await ai.models.generateContent({
-          model: "gemini-3-flash-preview",
-          contents: prompt,
+        const response = await fetch("/api/gemini", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ prompt }),
         });
-        
-        if (!response.text) {
-          throw new Error("Gemini 返回内容为空");
+
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          throw new Error(`Gemini 接口错误 (${response.status}): ${errorData.error || "未知错误"}`);
         }
-        text = response.text.trim();
+
+        const data = await response.json();
+        text = data.text;
       } catch (e) {
         console.error("Gemini Engine Failed:", e);
         throw e;
       }
+    } else {
+      throw new Error("未检测到有效配置（ZHIPU_API_KEY 或 GEMINI_API_KEY 缺失）");
     }
 
     // Check for hint response
